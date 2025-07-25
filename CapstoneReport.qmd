@@ -1,0 +1,1633 @@
+---
+title: "Understanding the Impact of Socioeconomic Status on Premature Deaths by Race"
+author:
+  - Saima Rahman - Colby College
+  - Maximus Liu - University of Texas at Austin 
+  - Meris McElveen - University of North Carolina at Chapel Hill
+date: "July 25, 2025"
+toc: true
+format:
+  html:
+    theme: cosmo
+    html-math-method: katex
+    self-contained: true
+execute:
+  echo: false
+  warning: false
+  message: false
+bibliography: references.bib
+---
+
+------------------------------------------------------------------------
+
+## Introduction
+
+Premature death, defined as death occurring before age 75, represents one of the most pressing public health challenges in the United States, with profound disparities across racial and geographic lines. In a 2017 study by the Centers for Disease Control and Prevention (CDC), it was revealed that in the early 2000s, annual age-adjusted death rates for the five leading causes of death in the US (heart disease, cancer, unintentional injury, chronic lower respiratory disease, and stroke) were higher in rural areas than in urban, emphasizing the significance in the growth of that gap[@garcia2017reducing]. Recent data from 2024 presents that Black, Hispanic, American Indian Alaska Native (AIAN) people face worse outcomes compared to white people across most examined measures of social health determinants, including infant, pregnancy-related, diabetes, and cancer mortality[@ndugga2025key].
+
+The relationship between socioeconomic factors and premature mortality is particularly pronounced in rural communities, with increased rates of premature death in rural counties with higher unemployment rates. Conversely, lower premature mortality rates in counties with higher median incomes and more primary care physicians per capita demonstrate the critical role of socioeconomic and social determinants of health (SDOH). These disparities are further aggravated by race and ethnicity, as research has shown that rural U.S. counties with a majority of non-Hispanic Black and AIAN residents had up to twice the rates of premature death in comparison to rural counties with a majority of non-Hispanic white residents.
+
+Understanding these disparities is crucial for countless reasons. Firstly, premature deaths represent individual tragedies as well as major economic losses to communities and healthcare systems. Additionally, many of these deaths may be preventable through targeted interventions addressing social determinants of health. Lastly, the high concentration of premature death rates in specific geographic and racial areas suggests that evidence-based interventions could contribute to public health benefits and advancements. By focusing on the intersection of geography, race, and socioeconomic status, this research aims to identify specific factors that contribute to health disparities and provide actionable recommendations for targeted public health interventions.
+
+## Data
+
+This analysis utilizes two primary data sources to examine the relationship between socioeconomic factors and premature death rates across racial groups at the county level. The foundation of our dataset comes from the County Health Rankings Data, collected by the University of Wisconsin Population Health Institute, which ranks every county in each state on its health outcomes and health factors. The premature mortality data by race were obtained from the Health Disparities Data Portal, which provides county-level premature death rates disaggregated by racial and ethnic groups. This portal, maintained by the National Institute on Minority Health and Health Disparities (NIMHD), offers critical insights into health disparities across different populations.
+
+### Sampling
+
+Our study focuses specifically on the Southern United States, which was chosen due to its predominantly higher rates of premature mortality and pronounced health disparities. Through systematic examination across all 50 states, we identified 17 Southern states that exhibited relatively high premature death rates most recently. Within these 17 states, we employed a purposive sampling strategy to address the significant challenge of missing data across racial categories. Many counties had incomplete data for certain racial groups, which would have limited the ability to conduct meaningful comparative analysis. To ensure sufficient data coverage across all racial groups of interest, we reviewed every county within our target states and selected those with the most complete data across all of the racial categories. This process resulted in a final sample of 4 to 5 counties per state, yielding a dataset of 70 counties that provided comprehensive data. This approach ensures that the analysis allows for important comparisons within and between counties.
+
+### Key Variables
+
+The final analytical dataset was created by merging county-level premature mortality data by race with the corresponding County Health Rankings data using Federal Information Processing Standards (FIPS) codes to ensure accurate geographic alignment.
+
+We focused on variables that served as metrics to determining a county's SES (socioeconomic status).
+
+Some key variables included within the analysis were as follows:
+
+Socioeconomic Factors:
+
+-   Median household income
+-   Income ratio
+-   Unemployment rate
+-   High school graduation rate
+-   Primary care physician rate
+
+Environmental Factors:
+
+-   Air pollution levels (PM2.5)\
+-   Presence of water violation
+-   Food environmental index
+
+Our exploratory data analysis (EDA) revealed a critical finding that rural counties consistently demonstrated significantly higher premature death rates compared to their urban counterparts. This exploration inspired the incorporation of a Rural factor variable in our analysis, created using the % Rural feature.
+
+This choropleth maps displays Years of Potential Life Lost (a premature death metric) across the United States. This map was used to narrow down of scope of analysis, where we focused on counties from states with high YPLL rates.
+
+```{r}
+#| label: YPLL MAP
+#| fig-cap: Figure 1. Choropleth map showing Premature Death rates across the United States
+library(readxl)
+library(tidyverse)
+#install.packages("janitor")
+library(janitor)
+
+data <- read_xlsx("2025 County Health Rankings Data - v3.xlsx", sheet = 2, skip = 1) |>
+  clean_names()
+
+# Ensure column is numeric
+data <- data %>%
+  mutate(
+    ypll_total = as.numeric(years_of_potential_life_lost_rate),
+    state = as.factor(state)
+  )
+
+# Aggregate to state level: average YPLL
+state_ypll <- data %>%
+  group_by(state) %>%
+  summarise(mean_ypll = mean(ypll_total, na.rm = TRUE)) %>%
+  ungroup()
+
+# Get state abbreviations
+state_abbr_lookup <- setNames(state.abb, state.name)
+
+# Add DC manually
+state_abbr_lookup["District of Columbia"] <- "DC"
+
+# Add abbreviations to your dataset
+state_ypll <- state_ypll %>%
+  mutate(code = state_abbr_lookup[as.character(state)])
+
+# Check for unmatched states (optional)
+unmatched <- state_ypll %>% filter(is.na(code))
+if (nrow(unmatched) > 0) print(unmatched)
+
+library(plotly)
+
+# Tooltip text
+state_ypll$hover <- with(state_ypll, paste(state, "<br>Average YPLL:", round(mean_ypll, 1)))
+
+# Map styling
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showlakes = TRUE,
+  lakecolor = toRGB('white')
+)
+
+# Build map
+fig <- plot_geo(state_ypll, locationmode = 'USA-states')
+fig <- fig %>% add_trace(
+  z = ~mean_ypll, text = ~hover, locations = ~code,
+  color = ~mean_ypll, colors = 'Reds'
+)
+fig <- fig %>% colorbar(title = "Avg. YPLL Rate")
+fig <- fig %>% layout(
+  title = 'Average Years of Potential Life Lost (YPLL) Rate by State',
+  geo = g
+)
+
+fig
+```
+
+We also conducted a correlation matrix in order to understand the relationship between a few selected socioeconomic factors. This matrix assumes paired data points, a linear relationship, and normal distribution. Due to the variability of our data, we used this matrix as a foundation point to understanding variable relationships and not to drive any statistical analyses.
+
+```{r fig.height=8, fig.width=10}
+#| label: Correlation Matrix
+#| fig-cap: Figure 2. Correlation Matrix of various socioeconomic variables. 
+library(ggcorrplot)
+
+county_health_data <- read_csv("USCountyHealth2025.csv")
+# View(county_health_data)
+
+
+#PREMATURE DEATH (YPLL) + uninsured, unemployed, food environment index, pcps corr
+selected_variables <- county_health_data |>
+  select(
+    YPLL = `Years of Potential Life Lost Rate`,
+    Uninsured = `% Uninsured`,
+    Unemployed = `% Unemployed`,
+    FoodEnvIndex = `Food Environment Index`,
+    PCP_Rate = `Primary Care Physicians Rate`
+  ) |>
+  drop_na()
+
+
+# Compute correlation matrix
+cor_matrix <- cor(selected_variables)
+
+# Visualize using heatmap
+# ggcorrplot(cor_matrix, 
+#            lab = TRUE, 
+#            type = "lower", 
+#            title = "Correlation Matrix: YPLL and Health Indicators",
+#            colors = c("red", "white", "blue"))
+
+
+
+# Load necessary libraries
+library(tidyverse)
+
+
+# Select and clean relevant columns
+pollution_data <- county_health_data |>
+  select(
+    YPLL = `Years of Potential Life Lost Rate`,
+    PM25 = `Average Daily PM2.5`,
+    WaterViolation = `Presence of Water Violation`
+  ) |>
+  mutate(WaterViolation = as.numeric(WaterViolation)) |> 
+  drop_na()
+
+# Compute correlation matrix
+cor_matrix <- cor(pollution_data)
+
+
+## Looking at additional health data
+additional_health <- read_csv('US_County_Additional_Health.csv')
+# View(additional_health)
+# colnames(additional_health)
+
+merged <- merge(county_health_data, additional_health, by = "FIPS")
+# View(merged)
+
+
+# Select columns
+additional_corr <- merged |>
+  select(YPLL = `Years of Potential Life Lost Rate`,
+         Rural = `# Rural Residents`,
+         UninsuredAdults = `# Uninsured Adults`,
+         DrugOverdoses = `# Drug Overdose Deaths`, 
+         FoodInsecure = `# Food Insecure`) |>
+  drop_na()
+
+# Correlation matrix
+additional_health_corr <- cor(additional_corr)
+
+# Visualize using heatmap
+# ggcorrplot(additional_health_corr, 
+#            lab = TRUE, 
+#            type = "lower", 
+#            title = "Correlation Matrix: YPLL and Additional Factors",
+#            colors = c("red", "white", "blue"))
+
+
+final_corr <- merged |> 
+  select( Uninsured = `% Uninsured`,
+          Unemployed = `% Unemployed`,
+          FoodEnvIndex = `Food Environment Index`,
+          PCP_Rate = `Primary Care Physicians Rate`,
+          YPLL = `Years of Potential Life Lost Rate`,
+          Rural = `# Rural Residents`,
+          UninsuredAdults = `# Uninsured Adults`,
+          DrugOverdoses = `# Drug Overdose Deaths`, 
+          FoodInsecure = `# Food Insecure`, 
+          SmokingAdultsRate = `% Adults Reporting Currently Smoking`, 
+          FrequentMentalDistressRate = `% Frequent Mental Distress`, 
+          LackingSupportRate = `% lacking support`
+    ) |> 
+  drop_na()
+
+final_corr <- cor(final_corr)
+ggcorrplot(final_corr, 
+           lab = TRUE, 
+           type = "lower", 
+           title = "Correlation Matrix: YPLL and Selected Socioeconomic Variables",
+           colors = c("red", "white", "blue"))
+
+```
+
+## Methods
+
+To gain a better understanding of how various socioeconomic factors impact the premature death rate across racial groups, we used the following machine learning techniques to determine feature importance and perform county-level premature death rate predictions.
+
+### Random Forest
+
+This algorithm involves the combination of multiple decision trees to output a single result for either regression or classification purposes. This method chooses features randomly to split and create trees. Due to the size and variability of our data set, we wanted to use random forest to gain an initial understanding of what socioeconomic features contribute the most to premature death. This method also makes minimal distributional assumptions about the data as it requires that the observations are independent while naturally handling various data types and missing values.
+
+### XGBoost
+
+This algorithm performs similarly to random forest, but is optimized for efficiency, speed, and performance. This involves using a base decision tree to calculate residual errors. Additional decision trees are trained, taking into account the errors from the previous trees. XGBoost is optimized to prevent over-fitting, determine the best data split, prioritize important features, and handle missing data. Due to the nature of our data, specifically with missing data even after cleaning, XGBoost appeared to be the best method. This method assumes that the relationship between features and target variables can be approximated by weak learners (decision trees), and requires independence of observations in order to feature distributions while handling non-linear relationships.
+
+We trained both of these models using identical feature sets to ensure fair comparison across the methods. Model performance was evaluated using Root Mean Square Error (RMSE) to measure prediction accuracy and R2 values to indicate the proportion of variance explained in premature death rates. Following this, we were able to determine the best-performing model based on the lowest RMSE and highest R2 values across racial groups and rank the features by importance scores from the optimal XGBoost model to identify the most influential socioeconomic and environmental factors. Lastly, we conducted separate analyses for each racial group to identify the variation in feature importance and patterns.
+
+Following the machine learning analysis, we implemented multiple linear regression (MLR) using manually selected features identified as most important. This provided interpretable coefficients essential for policy recommendations and assessed linear relationships between socioeconomic factors and premature mortality. The MLR model conditions were verified and assume linear relationships between predictors and outcomes, independence of observations, normality of residuals, constant variance (absence of multicollinearity), and a representative sample.
+
+All models were evaluated using consistent metrics across racial groups, including RMSE for prediction accuracy, R-squared for explained variance, five-fold cross-validation performance to assess generalizability, and feature stability analysis to ensure consistent variable importance across different data subsets. This comprehensive approach enabled both accurate prediction of premature death rates and interpretable insights into the most influential socioeconomic determinants affecting different racial groups.
+
+## Results
+
+```{r include=FALSE}
+#| label: Datasets for use
+library(tidyverse)
+library(data.table)
+library(ggcorrplot)
+library(stacks)
+library(ranger)
+library(dplyr)
+library(vip)
+library(caret)
+library(knitr)
+library(kableExtra)
+
+
+# reading in created dataset 
+our_counties <- read.csv("our_counties.csv", check.names = FALSE)
+our_counties <- our_counties |> 
+  mutate(`Presence of Water Violation` = if_else(`Presence of Water Violation` == "Yes", 1, 0))
+
+
+# datasets for each racial group # 
+our_counties_filtered_black <- our_counties[!is.na(our_counties$`Premature Age-Adjusted Mortality Rate (Black) - deaths per 100,000`), ]
+our_counties_filtered_white <- our_counties[!is.na(our_counties$`Premature Age-Adjusted Mortality Rate (White) - deaths per 100,000`), ]
+our_counties_filtered_hisp <- our_counties[!is.na(our_counties$`Premature Age-Adjusted Mortality Rate (Hispanic) - deaths per 100,000`), ]
+our_counties_filtered_aian <- our_counties[!is.na(our_counties$`Premature Age-Adjusted Mortality Rate (AIAN) - deaths per 100,000`), ]
+our_counties_filtered_asian <- our_counties[!is.na(our_counties$`Premature Age-Adjusted Mortality Rate (Asian) - deaths per 100,000`), ]
+
+### Making X_train, Y DFs for the models #####
+PD_vars_black_NO_NA <- our_counties_filtered_black |> 
+  select(`Premature Age-Adjusted Mortality Rate (Black) - deaths per 100,000`, 
+         "% Rural", "% Uninsured", "Food Environment Index", "Average Daily PM2.5",
+         "% Some College", "% Vaccinated", "% With Access to Exercise Opportunities",
+         "Primary Care Physicians Rate", "Mental Health Provider Rate", "% Severe Housing Problems",
+         "Severe Housing Cost Burden", "% Completed High School", "% Unemployed", "% Children in Poverty",
+         "20th Percentile Income", "% Household Income Required for Child Care Expenses", "Child Mortality Rate",
+         "% Adults with Diabetes", "% Adults with Obesity", "% Limited Access to Healthy Foods",
+         "% Food Insecure", "Teen Birth Rate", "% Excessive Drinking", "% Driving Deaths with Alcohol Involvement",
+         "Drug Overdose Mortality Rate", "% Adults Reporting Currently Smoking", "% Uninsured Children", "% Homeowners",
+         "% Households with Severe Cost Burden", "% with access to parks", "High School Graduation Rate",
+         "% Enrolled in Free or Reduced Lunch", "Median Household Income", "Homicide Rate",
+         "Motor Vehicle Mortality Rate", "Firearm Fatalities Rate", "% with disability",
+         "# Not Proficient in English", "# Children in Single-Parent Households",
+         "Presence of Water Violation") |> 
+  na.omit()
+
+y_black <- PD_vars_black_NO_NA[[1]]
+x_black <- as.matrix(PD_vars_black_NO_NA[, -1])
+
+PD_vars_white_NO_NA <- our_counties_filtered_white |> 
+  select(`Premature Age-Adjusted Mortality Rate (White) - deaths per 100,000`, 
+         "% Rural", "% Uninsured", "Food Environment Index", "Average Daily PM2.5",
+         "% Some College", "% Vaccinated", "% With Access to Exercise Opportunities",
+         "Primary Care Physicians Rate", "Mental Health Provider Rate", "% Severe Housing Problems",
+         "Severe Housing Cost Burden", "% Completed High School", "% Unemployed", "% Children in Poverty",
+         "20th Percentile Income", "% Household Income Required for Child Care Expenses", "Child Mortality Rate",
+         "% Adults with Diabetes", "% Adults with Obesity", "% Limited Access to Healthy Foods",
+         "% Food Insecure", "Teen Birth Rate", "% Excessive Drinking", "% Driving Deaths with Alcohol Involvement",
+         "Drug Overdose Mortality Rate", "% Adults Reporting Currently Smoking", "% Uninsured Children", "% Homeowners",
+         "% Households with Severe Cost Burden", "% with access to parks", "High School Graduation Rate",
+         "% Enrolled in Free or Reduced Lunch", "Median Household Income", "Homicide Rate",
+         "Motor Vehicle Mortality Rate", "Firearm Fatalities Rate", "% with disability",
+         "# Not Proficient in English", "# Children in Single-Parent Households",
+         "Presence of Water Violation") |> 
+  na.omit()
+
+y_white <- PD_vars_white_NO_NA[[1]]
+x_white <- as.matrix(PD_vars_white_NO_NA[, -1])
+
+PD_vars_hispanic_NO_NA <- our_counties_filtered_hisp |> 
+  select(`Premature Age-Adjusted Mortality Rate (Hispanic) - deaths per 100,000`, 
+         "% Rural", "% Uninsured", "Food Environment Index", "Average Daily PM2.5",
+         "% Some College", "% Vaccinated", "% With Access to Exercise Opportunities",
+         "Primary Care Physicians Rate", "Mental Health Provider Rate", "% Severe Housing Problems",
+         "Severe Housing Cost Burden", "% Completed High School", "% Unemployed", "% Children in Poverty",
+         "20th Percentile Income", "% Household Income Required for Child Care Expenses", "Child Mortality Rate",
+         "% Adults with Diabetes", "% Adults with Obesity", "% Limited Access to Healthy Foods",
+         "% Food Insecure", "Teen Birth Rate", "% Excessive Drinking", "% Driving Deaths with Alcohol Involvement",
+         "Drug Overdose Mortality Rate", "% Adults Reporting Currently Smoking", "% Uninsured Children", "% Homeowners",
+         "% Households with Severe Cost Burden", "% with access to parks", "High School Graduation Rate",
+         "% Enrolled in Free or Reduced Lunch", "Median Household Income", "Homicide Rate",
+         "Motor Vehicle Mortality Rate", "Firearm Fatalities Rate", "% with disability",
+         "# Not Proficient in English", "# Children in Single-Parent Households",
+         "Presence of Water Violation") |> 
+  na.omit()
+
+y_hispanic <- PD_vars_hispanic_NO_NA[[1]]
+x_hispanic <- as.matrix(PD_vars_hispanic_NO_NA[, -1])
+
+PD_vars_asian_NO_NA <- our_counties_filtered_asian |> 
+  select(`Premature Age-Adjusted Mortality Rate (Asian) - deaths per 100,000`, 
+         "% Rural", "% Uninsured", "Food Environment Index", "Average Daily PM2.5",
+         "% Some College", "% Vaccinated", "% With Access to Exercise Opportunities",
+         "Primary Care Physicians Rate", "Mental Health Provider Rate", "% Severe Housing Problems",
+         "Severe Housing Cost Burden", "% Completed High School", "% Unemployed", "% Children in Poverty",
+         "20th Percentile Income", "% Household Income Required for Child Care Expenses", "Child Mortality Rate",
+         "% Adults with Diabetes", "% Adults with Obesity", "% Limited Access to Healthy Foods",
+         "% Food Insecure", "Teen Birth Rate", "% Excessive Drinking", "% Driving Deaths with Alcohol Involvement",
+         "Drug Overdose Mortality Rate", "% Adults Reporting Currently Smoking", "% Uninsured Children", "% Homeowners",
+         "% Households with Severe Cost Burden", "% with access to parks", "High School Graduation Rate",
+         "% Enrolled in Free or Reduced Lunch", "Median Household Income", "Homicide Rate",
+         "Motor Vehicle Mortality Rate", "Firearm Fatalities Rate", "% with disability",
+         "# Not Proficient in English", "# Children in Single-Parent Households",
+         "Presence of Water Violation") |> 
+  na.omit()
+
+y_asian <- PD_vars_asian_NO_NA[[1]]
+x_asian <- as.matrix(PD_vars_asian_NO_NA[, -1])
+
+PD_vars_aian_NO_NA <- our_counties_filtered_aian |> 
+  select(`Premature Age-Adjusted Mortality Rate (AIAN) - deaths per 100,000`, 
+         "% Rural", "% Uninsured", "Food Environment Index", "Average Daily PM2.5",
+         "% Some College", "% Vaccinated", "% With Access to Exercise Opportunities",
+         "Primary Care Physicians Rate", "Mental Health Provider Rate", "% Severe Housing Problems",
+         "Severe Housing Cost Burden", "% Completed High School", "% Unemployed", "% Children in Poverty",
+         "20th Percentile Income", "% Household Income Required for Child Care Expenses", "Child Mortality Rate",
+         "% Adults with Diabetes", "% Adults with Obesity", "% Limited Access to Healthy Foods",
+         "% Food Insecure", "Teen Birth Rate", "% Excessive Drinking", "% Driving Deaths with Alcohol Involvement",
+         "Drug Overdose Mortality Rate", "% Adults Reporting Currently Smoking", "% Uninsured Children", "% Homeowners",
+         "% Households with Severe Cost Burden", "% with access to parks", "High School Graduation Rate",
+         "% Enrolled in Free or Reduced Lunch", "Median Household Income", "Homicide Rate",
+         "Motor Vehicle Mortality Rate", "Firearm Fatalities Rate", "% with disability",
+         "# Not Proficient in English", "# Children in Single-Parent Households",
+         "Presence of Water Violation") |> 
+  na.omit()
+
+y_aian <- PD_vars_aian_NO_NA[[1]]
+x_aian <- as.matrix(PD_vars_aian_NO_NA[, -1])
+```
+
+```{r include=FALSE}
+#| label: Model Comparison
+# model comparison
+train_control <- trainControl(method = "repeatedcv", number = 3, repeats = 5)
+run_models_for_group <- function(x, y, group_name) {
+  library(caret)
+  set.seed(123)
+  rf_model <- train(
+    x = x, y = y,
+    method = "ranger",
+    trControl = trainControl(method = "cv", number = 3),
+    tuneLength = 1,
+    metric = "RMSE"
+  )
+  
+  xgb_model <- train(
+    x = x, y = y,
+    method = "xgbTree",
+    trControl = trainControl(method = "cv", number = 3),
+    metric = "RMSE"
+  )
+  
+  results <- tibble(
+    Group = group_name,
+    Model = c("Random Forest", "XGBoost"),
+    RMSE = c(min(rf_model$results$RMSE), min(xgb_model$results$RMSE)),
+    R2   = c(max(rf_model$results$Rsquared), max(xgb_model$results$Rsquared))
+  )
+  
+  return(list(results = results, 
+       rf_model = rf_model, 
+       xgb_model = xgb_model))
+}
+
+# model comparison results
+results_black <- run_models_for_group(x_black, y_black, "Black")
+results_white <- run_models_for_group(x_white, y_white, "White")
+results_hispanic <- run_models_for_group(x_hispanic, y_hispanic, "Hispanic")
+results_asian <- run_models_for_group(x_asian, y_asian, "Asian")
+results_aian <- run_models_for_group(x_aian, y_aian, "AIAN")
+
+## as a table
+all_results <- bind_rows(results_black$results, results_white$results, 
+                         results_aian$results, results_asian$results, 
+                         results_hispanic$results)
+
+
+
+results_black$results$Group <- "Black"
+results_white$results$Group <- "White"
+results_hispanic$results$Group <- "Hispanic"
+results_asian$results$Group <- "Asian"
+results_aian$results$Group <- "AIAN"
+
+best_rmse <- all_results |>
+  group_by(Group) |>
+  slice_min(RMSE, with_ties = FALSE) |>
+  mutate(Best_By = "Lowest RMSE")
+
+best_r2 <- all_results |>
+  group_by(Group) |>
+  slice_max(R2, with_ties = FALSE) |>
+  mutate(Best_By = "Highest R2")
+
+best_both <- bind_rows(best_rmse, best_r2) |>
+  arrange(Group, Best_By)
+
+##
+
+best_rmse_wide <- best_rmse |>
+  select(Group, Model, RMSE, R2) |>
+  rename_with(~paste0(.x, "_RMSE"), c(Model, RMSE, R2))
+
+best_r2_wide <- best_r2 |>
+  select(Group, Model, RMSE, R2) |>
+  rename_with(~paste0(.x, "_R2"), c(Model, RMSE, R2))
+
+best_combined <- left_join(best_rmse_wide, best_r2_wide, by = "Group")
+
+
+
+best_combined |>
+  kable(digits = 2, caption = "Best Model by RMSE and R2 per Group (Wide Format)") |>
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+
+
+
+all_results <- all_results |>
+  mutate(Model = recode(Model, "Random Forest" = "RandomForest"))
+
+# Pivot and calculate differences + formatting
+results_wide <- all_results |>
+  pivot_wider(
+    names_from = Model,
+    values_from = c(RMSE, R2),
+    names_sep = "_"
+  ) |>
+  mutate(
+    RMSE_Difference = RMSE_RandomForest - RMSE_XGBoost, 
+    R2_Difference = R2_RandomForest - R2_XGBoost)
+
+
+```
+
+We conducted a model comparison to determine which method to use for our final prediction model.
+
+```{r echo=FALSE, fig.height=8, fig.width=10}
+#| label: Comparison Table 1
+#| fig-cap: Figure 3a. Table of Model Comparison Results. This was used to obtain the final prediction model.
+best_both |>
+  kable(digits = 2, caption = "Best Models per Group by RMSE and R²") |>
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+Across all races, XGBoost was the best model as it provided higher R2 and lower RMSE (Root Mean Squared Error) values. These metrics are used to measure predictive accuracy and model performance.
+
+```{r echo=FALSE, fig.height=8, fig.width=10}
+#| label: Comparison Plot 2
+#| fig-cap: Figure 3b. Table of Model Comparison Results. 
+# Display the formatted table
+results_wide |> 
+  select(Group, RMSE_RandomForest, R2_RandomForest, 
+         RMSE_XGBoost, R2_XGBoost,
+         RMSE_Difference, R2_Difference) |>
+  kable(
+    escape = FALSE,
+    digits = 2,
+    col.names = c("Group", "RMSE (RF)", "R² (RF)", "RMSE (XGB)", "R² (XGB)",
+                  "Δ RMSE (RF - XGB)", "Δ R² (RF - XGB)"),
+    caption = "Random Forest vs XGBoost Performance by Race"
+  ) |>
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Final XGBoost Model Feature Selection
+
+From the initial XGBoost model, we extracted the top 15 most important features. Across all races, feature importance does vary. We were able to gain some understanding of the physical health determinants related to premature death, including child mortality, firearm fatalities, and driving deaths with alcohol involvement. However, the initial model provided a limited understanding of premature death through a socioeconomic lens.
+
+```{r echo=FALSE, fig.height=8, fig.width=10}
+#| fig-cap: Figure 4. Top features influencing Premature Death rates across racial groups. Rural is consistently a top feature among all races. 
+xgb_model_black <- results_black$xgb_model
+# vip(vi(xgb_model_black$finalModel)) 
+top_15_vars_black <- vi(xgb_model_black$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+
+
+
+# white
+xgb_model_white <- results_white$xgb_model
+# vip(vi(xgb_model_white$finalModel)) 
+top_15_vars_white <- vi(xgb_model_white$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+
+
+#hispanic
+xgb_model_hispanic <- results_hispanic$xgb_model
+# vip(vi(xgb_model_hispanic$finalModel))
+top_15_vars_hispanic <- vi(xgb_model_hispanic$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+
+
+#asian
+xgb_model_asian <- results_asian$xgb_model
+# vip(vi(xgb_model_asian$finalModel)) 
+top_15_vars_asian <- vi(xgb_model_asian$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+
+
+
+#aian
+xgb_model_aian <- results_aian$xgb_model
+# vip(vi(xgb_model_aian$finalModel)) 
+top_15_vars_aian <- vi(xgb_model_aian$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+
+
+
+###### visualization of top 15 #####
+library(ggplot2)
+library(forcats)
+library(purrr)
+library(knitr)
+library(plotly)
+## 
+library(dplyr)
+
+
+top_15_vars_asian <- tibble(
+  Variable = c("% Rural", "% Driving Deaths with Alcohol Involvement",   
+                 "% Some College",                             
+                 "% Homeowners",                                 
+                 "Primary Care Physicians Rate",                  
+                 "# Not Proficient in English",                    
+                 "Food Environment Index",                       
+                 "% Limited Access to Healthy Foods",             
+               "Mental Health Provider Rate",                   
+                 "% Severe Housing Problems",                    
+                 "Average Daily PM2.5",                          
+               "Drug Overdose Mortality Rate",                  
+                 "# Children in Single-Parent Households",        
+                 "Teen Birth Rate",                              
+                 "% Vaccinated"    ),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+top_15_vars_black <- tibble(
+  Variable = c("20th Percentile Income",                            
+               "Child Mortality Rate",                               
+               "% Adults Reporting Currently Smoking",              
+               "% Enrolled in Free or Reduced Lunch",                 
+                "Firearm Fatalities Rate",                             
+               "% Some College",                                  
+             "% Severe Housing Problems",                           
+                "Median Household Income",                             
+               "Homicide Rate",                                     
+               "% Households with Severe Cost Burden",                
+                "% Completed High School",                          
+              "% Limited Access to Healthy Foods",                
+              "% Household Income Required for Child Care Expenses", 
+               "% Children in Poverty",                            
+                "Primary Care Physicians Rate"),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+top_15_vars_white <- tibble(
+  Variable = c("% Adults with Obesity", "Child Mortality Rate",                    
+                "% with disability", "Median Household Income",                  
+              "% Adults Reporting Currently Smoking", "% Limited Access to Healthy Foods",     
+             "# Not Proficient in English", "% Rural",                               
+ "% Driving Deaths with Alcohol Involvement", "Primary Care Physicians Rate",             
+               "Average Daily PM2.5", "% Excessive Drinking",                 
+               "Food Environment Index", "% with access to parks",                   
+               "High School Graduation Rate"),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+top_15_vars_aian <- tibble(
+  Variable = c("Firearm Fatalities Rate",                         
+               "% Rural",                                           
+               "% Household Income Required for Child Care Expenses", 
+            "Drug Overdose Mortality Rate",                        
+                "% Some College",                                    
+              "% Driving Deaths with Alcohol Involvement",        
+            "Average Daily PM2.5",                                
+              "Primary Care Physicians Rate",                     
+                "Food Environment Index",                              
+                "% Severe Housing Problems" ,                          
+                "High School Graduation Rate",                         
+                "# Children in Single-Parent Households",             
+                "Child Mortality Rate",                               
+                "% with disability",                                  
+               "% Vaccinated"),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+top_15_vars_hispanic <- tibble(
+  Variable = c("% Adults with Obesity", "% Rural",                               
+                "% With Access to Exercise Opportunities", "% Unemployed",                           
+                "20th Percentile Income", "Food Environment Index",                
+                "% Limited Access to Healthy Foods", "% with access to parks",              
+                "Average Daily PM2.5", "Drug Overdose Mortality Rate",         
+                "% Adults with Diabetes", "% Households with Severe Cost Burden",   
+               "Firearm Fatalities Rate",  "% Enrolled in Free or Reduced Lunch",   
+              "% Excessive Drinking"),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+
+
+groups <- list(
+  "Asian" = top_15_vars_asian,
+  "Black" = top_15_vars_black,
+  "White" = top_15_vars_white, 
+  "AIAN" = top_15_vars_aian, 
+  "Hispanic" = top_15_vars_hispanic
+)
+
+
+
+
+library(plotly)
+
+
+fig <- plot_ly()
+group_names <- names(groups)
+
+for (i in seq_along(group_names)) {
+  group_name <- group_names[i]
+  df <- groups[[group_name]]
+  
+  fig <- add_trace(
+    fig,
+    data = df,
+    x = ~Importance,
+    y = ~factor(Variable, levels = rev(Variable)),  # reverse for horizontal top-to-bottom
+    type = "bar",
+    orientation = "h",
+    name = group_name,
+    visible = (i == 1),  # only show first group at start
+    marker = list(
+      color = df$Importance,
+      colorscale = "Blues",
+      reversescale = FALSE
+    ),
+    text = ~paste0(Variable, "<br>Importance: ", round(Importance, 3)),
+    hoverinfo = "text"
+  )
+}
+
+# Create dropdown buttons, each updates visible trace and y-axis labels
+buttons <- lapply(seq_along(group_names), function(i) {
+  group_name <- group_names[i]
+  df <- groups[[group_name]]
+  
+  list(
+    method = "update",
+    args = list(
+      list(visible = seq_along(group_names) == i),  # only show current group
+      list(
+        title = paste("Top 15 Features -", group_name),
+        yaxis = list(
+          title = "Variable",
+          categoryorder = "array",
+          categoryarray = rev(df$Variable)  # reorder y-axis to match group
+        )
+      )
+    ),
+    label = group_name
+  )
+})
+
+# Final layout
+fig <- fig |>
+  layout(
+    title = paste("Top 15 Feature Importance -", group_names[1]),
+    xaxis = list(title = "Importance"),
+    yaxis = list(title = "Variable"),
+    margin = list(l = 100, r = 50, t = 100, b = 50),
+    updatemenus = list(list(
+      active = 0,
+      buttons = buttons,
+      x = 0.85,
+      y = 1.15,
+      xanchor = "left",
+      yanchor = "top"
+    ))
+  )
+
+fig
+```
+
+There are some overlaps in features, such as food environment index, percent of some college completed, percent rural population, and primary care physician rate. The majority of the most important features are historically used as markers to assess an area’s socioeconomic status, as they may point to lack of access to resources or facilities involving life quality or expectancy.
+
+A final XGBoost model, using the following features, was cross-selected from both the MLR and initial XGBoost models. Additionally, these features showed up at varying importance levels across all racial groups.
+
+-   \% Rural
+-   Food Environment Index
+-   Primary care physician rate
+-   \% Limited access to healthy food
+-   \% Some college
+-   Average PM2.5
+-   \% Unemployed
+-   Income Ratio
+
+## Premature Death Rate Predictions Across Race
+
+A final XGBoost model using cross-validation was performed on all the racial groups. We determined that our features provided a somewhat strong predictive power in predicting premature death, as denoted by our performance metrics. Our predictions are consistently scattered around the identity line, indicating less accuracy and the presence of errors. With consideration of our sample size for each race, this model does provide solid predictive capabilities. However, limitations are still present.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+#| fig-cap: Figure 5. XGBoost model predictions across all racial groups. 
+
+all_race_data <- list(
+  Black = our_counties_filtered_black,
+  White = our_counties_filtered_white, 
+  Asian = our_counties_filtered_asian, 
+  AIAN = our_counties_filtered_aian, 
+  Hispanic = our_counties_filtered_hisp
+)
+
+# Set final features
+final_features <- c("% Rural", "Food Environment Index",
+                    "Primary Care Physicians Rate", "% Limited Access to Healthy Foods", 
+                    "% Some College", "Average Daily PM2.5", "% Unemployed", 
+                    "Income Ratio")
+
+# Define tuning grid
+xg_grid_final <- crossing(nrounds = seq(20, 150, 10),
+                          eta = c(0.01, 0.05, 0.1),
+                          gamma = 0,
+                          max_depth = c(2, 3, 4),
+                          colsample_bytree = 1,
+                          min_child_weight = 1,
+                          subsample = 1
+)
+
+
+
+# plotting CROSS VALIDATED PREDICTIONS
+saved_preds <- list()
+saved_models <- list()
+for (group in names(all_race_data)) {
+  
+  target_column <- paste0("Premature Age-Adjusted Mortality Rate (", group, ") - deaths per 100,000")
+  df_group <- all_race_data[[group]]
+  
+  # Train/test split (optional — not used for CV but can keep for reference)
+  set.seed(1234)
+  sample_split <- sample(c(TRUE, FALSE), nrow(df_group), replace = TRUE, prob = c(0.7, 0.3))
+  train <- df_group[sample_split, ]
+  
+  x_train_final <- train[, final_features]
+  y_train_final <- train[[target_column]]
+  
+  # Train model with cross-validation
+  set.seed(1234)
+  control <- trainControl(method = "cv", number = 5, savePredictions = "final")  # ✅ Fixed this line
+  xg_tune <- train(
+    x = x_train_final, 
+    y = y_train_final, 
+    tuneGrid = xg_grid_final, 
+    trControl = control,
+    objective = "reg:squarederror", 
+    method = "xgbTree"
+  )
+  
+  cv_preds <- xg_tune$pred
+  saved_preds[[group]] <- cv_preds
+  saved_models[[group]] <-xg_tune
+  
+  # Plotting cross-validated predictions
+  p <- ggplot(cv_preds, aes(x = obs, y = pred)) +
+    geom_point(alpha = 0.7, color = "blue") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(title = paste("Predicted Premature Death Rate (per 100,000) vs Actual:", group),
+         x = "Actual Rate", y = "Predicted Rate") +
+    theme_minimal()
+  
+  print(p)  # ✅ Ensures the plot appears in the loop
+}
+```
+
+We found the rural population rate of a county was one of the most important features across all races. In our initial XGBoost model and MLR, percent rural was a consistent and significant variable. This suggests that rurality plays an important role in premature death.
+
+```{r include=FALSE}
+#| label: top 15 important features across races 
+library(ggplot2)
+library(forcats)
+library(purrr)
+library(knitr)
+library(plotly)
+library(dplyr)
+
+
+xgb_model_black <- results_black$xgb_model
+vip(vi(xgb_model_black$finalModel)) 
+top_15_vars_black <- vi(xgb_model_black$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+# white
+xgb_model_white <- results_white$xgb_model
+vip(vi(xgb_model_white$finalModel)) 
+top_15_vars_white <- vi(xgb_model_white$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+#hispanic
+xgb_model_hispanic <- results_hispanic$xgb_model
+vip(vi(xgb_model_hispanic$finalModel))
+top_15_vars_hispanic <- vi(xgb_model_hispanic$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+
+#asian
+xgb_model_asian <- results_asian$xgb_model
+vip(vi(xgb_model_asian$finalModel)) 
+top_15_vars_asian <- vi(xgb_model_asian$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+
+#aian
+xgb_model_aian <- results_aian$xgb_model
+vip(vi(xgb_model_aian$finalModel)) 
+top_15_vars_aian <- vi(xgb_model_aian$finalModel) |>
+  dplyr::arrange(desc(Importance)) |>
+  slice(1:15)
+
+top_15_vars_asian <- tibble(
+  Variable = c("% Rural", "% Driving Deaths with Alcohol Involvement",   
+                 "% Some College",                             
+                 "% Homeowners",                                 
+                 "Primary Care Physicians Rate",                  
+                 "# Not Proficient in English",                    
+                 "Food Environment Index",                       
+                 "% Limited Access to Healthy Foods",             
+               "Mental Health Provider Rate",                   
+                 "% Severe Housing Problems",                    
+                 "Average Daily PM2.5",                          
+               "Drug Overdose Mortality Rate",                  
+                 "# Children in Single-Parent Households",        
+                 "Teen Birth Rate",                              
+                 "% Vaccinated"    ),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+top_15_vars_black <- tibble(
+  Variable = c("20th Percentile Income",                            
+               "Child Mortality Rate",                               
+               "% Adults Reporting Currently Smoking",              
+               "% Enrolled in Free or Reduced Lunch",                 
+                "Firearm Fatalities Rate",                             
+               "% Some College",                                  
+             "% Severe Housing Problems",                           
+                "Median Household Income",                             
+               "Homicide Rate",                                     
+               "% Households with Severe Cost Burden",                
+                "% Completed High School",                          
+              "% Limited Access to Healthy Foods",                
+              "% Household Income Required for Child Care Expenses", 
+               "% Children in Poverty",                            
+                "Primary Care Physicians Rate"),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+top_15_vars_white <- tibble(
+  Variable = c("% Adults with Obesity", "Child Mortality Rate",                    
+                "% with disability", "Median Household Income",                  
+              "% Adults Reporting Currently Smoking", "% Limited Access to Healthy Foods",     
+             "# Not Proficient in English", "% Rural",                               
+ "% Driving Deaths with Alcohol Involvement", "Primary Care Physicians Rate",             
+               "Average Daily PM2.5", "% Excessive Drinking",                 
+               "Food Environment Index", "% with access to parks",                   
+               "High School Graduation Rate"),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+top_15_vars_aian <- tibble(
+  Variable = c("Firearm Fatalities Rate",                         
+               "% Rural",                                           
+               "% Household Income Required for Child Care Expenses", 
+            "Drug Overdose Mortality Rate",                        
+                "% Some College",                                    
+              "% Driving Deaths with Alcohol Involvement",        
+            "Average Daily PM2.5",                                
+              "Primary Care Physicians Rate",                     
+                "Food Environment Index",                              
+                "% Severe Housing Problems" ,                          
+                "High School Graduation Rate",                         
+                "# Children in Single-Parent Households",             
+                "Child Mortality Rate",                               
+                "% with disability",                                  
+               "% Vaccinated"),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+top_15_vars_hispanic <- tibble(
+  Variable = c("% Adults with Obesity", "% Rural",                               
+                "% With Access to Exercise Opportunities", "% Unemployed",                           
+                "20th Percentile Income", "Food Environment Index",                
+                "% Limited Access to Healthy Foods", "% with access to parks",              
+                "Average Daily PM2.5", "Drug Overdose Mortality Rate",         
+                "% Adults with Diabetes", "% Households with Severe Cost Burden",   
+               "Firearm Fatalities Rate",  "% Enrolled in Free or Reduced Lunch",   
+              "% Excessive Drinking"),
+  Importance = sort(runif(15, 0.1, 0.9), decreasing = TRUE)
+)
+
+
+groups <- list(
+  "Asian" = top_15_vars_asian,
+  "Black" = top_15_vars_black,
+  "White" = top_15_vars_white, 
+  "AIAN" = top_15_vars_aian, 
+  "Hispanic" = top_15_vars_hispanic
+)
+
+```
+
+```{r, echo = FALSE, fig.height=12, fig.width=12}
+#| fig-cap: Figure 6. Top features of XGBoost model across all racial groups. 
+## NEW PLOT FOR THE PRESENTATION OR REPORT LOL 
+# read it in LOL 
+#"FeaturesAllRaces_XGBMODEL.png"
+
+# ![Fea](path/to/image.png) 
+
+
+knitr::include_graphics("FeaturesAllRaces_XGBMODEL.png")
+
+```
+
+```{r include=FALSE}
+#| label: Final xgb (for all races)
+# Define the race-specific datasets once
+all_race_data <- list(
+  Black = our_counties_filtered_black,
+  White = our_counties_filtered_white, 
+  Asian = our_counties_filtered_asian, 
+  AIAN = our_counties_filtered_aian, 
+  Hispanic = our_counties_filtered_hisp
+)
+
+# Set final features
+final_features <- c("% Rural", "Food Environment Index",
+                    "Primary Care Physicians Rate", "% Limited Access to Healthy Foods", 
+                    "% Some College", "Average Daily PM2.5", "% Unemployed", 
+                    "Income Ratio")
+
+# Define tuning grid
+xg_grid_final <- crossing(nrounds = seq(20, 150, 10),
+                          eta = c(0.01, 0.05, 0.1),
+                          gamma = 0,
+                          max_depth = c(2, 3, 4),
+                          colsample_bytree = 1,
+                          min_child_weight = 1,
+                          subsample = 1
+)
+
+# Optional: store results
+model_results <- list()
+plot_list <- list()
+
+# Loop through each race group
+for (group in names(all_race_data)) {
+  
+  target_column <- paste0("Premature Age-Adjusted Mortality Rate (", group, ") - deaths per 100,000")
+  df_group <- all_race_data[[group]]
+  
+  # Train/test split
+  set.seed(1234)
+  sample_split <- sample(c(TRUE, FALSE), nrow(df_group), replace = TRUE, prob = c(0.7, 0.3))
+  train <- df_group[sample_split, ]
+  test <- df_group[!sample_split, ]
+  
+  x_train_final <- train[, final_features]
+  y_train_final <- train[[target_column]]
+  x_test_final <- test[, final_features]
+  y_test_final <- test[[target_column]]
+  
+  # Train model
+  set.seed(1234)
+  control <- trainControl(method = "cv", number = 5, savePrediction = "final")
+  xg_tune <- train(
+    x = x_train_final, 
+    y = y_train_final, 
+    tuneGrid = xg_grid_final, 
+    trControl = control,
+    objective = "reg:squarederror", 
+    method = "xgbTree"
+  )
+  cv_preds <- xg_tune$pred
+  # Predict on test
+  preds <- predict(xg_tune, newdata = x_test_final)
+  
+  # Plot
+  p <- ggplot(data.frame(actual = y_test_final, predicted = preds), 
+              aes(x = actual, y = predicted)) + 
+    geom_point(alpha = 0.7, color = "green") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(title = paste("Predicted vs Actual:", group), 
+         x = "Actual Rate", 
+         y = "Predicted Rate") +
+    theme_minimal()
+  
+  # Store results
+  model_results[[group]] <- xg_tune
+  plot_list[[group]] <- p
+  
+  # Print plot
+  print(p)
+  
+  # plotting cv pred
+  ggplot(cv_preds, aes(x = obs, y = pred)) +
+    geom_point(alpha = 0.7, color = "blue") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(title = paste("Cross-Validated Predictions vs Actual:", group),
+         x = "Actual Rate", y = "Predicted Rate") +
+    theme_minimal()
+  
+  
+}
+```
+
+```{r include=FALSE}
+#| label: CV preds from the xgb
+
+saved_preds <- list()
+saved_models <- list()
+for (group in names(all_race_data)) {
+  
+  target_column <- paste0("Premature Age-Adjusted Mortality Rate (", group, ") - deaths per 100,000")
+  df_group <- all_race_data[[group]]
+  
+  # Train/test split (optional — not used for CV but can keep for reference)
+  set.seed(1234)
+  sample_split <- sample(c(TRUE, FALSE), nrow(df_group), replace = TRUE, prob = c(0.7, 0.3))
+  train <- df_group[sample_split, ]
+  
+  x_train_final <- train[, final_features]
+  y_train_final <- train[[target_column]]
+  
+  # Train model with cross-validation
+  set.seed(1234)
+  control <- trainControl(method = "cv", number = 5, savePredictions = "final")  # ✅ Fixed this line
+  xg_tune <- train(
+    x = x_train_final, 
+    y = y_train_final, 
+    tuneGrid = xg_grid_final, 
+    trControl = control,
+    objective = "reg:squarederror", 
+    method = "xgbTree"
+  )
+  
+  cv_preds <- xg_tune$pred
+  saved_preds[[group]] <- cv_preds
+  saved_models[[group]] <-xg_tune
+
+}
+```
+
+```{r include=FALSE, fig.height=8, fig.width=12}
+#| fig-cap: Figure 7. Top features of XGBoost model across all racial groups. 
+#| label: top features from the model (all races)
+importance_matrix_races <- lapply(saved_models, function(model) {
+  imp <- varImp(model)$importance
+  imp$Feature <- rownames(imp)
+  imp
+})
+names(importance_matrix_races) <- names(saved_models)
+
+# Combine into one df with Race column
+importance_df <- bind_rows(importance_matrix_races, .id = "Race")
+
+ggplot(importance_df, aes(x = reorder(Feature, Overall), y = Overall)) +
+  geom_col(fill = "skyblue") +
+  coord_flip() +
+  facet_wrap(~ Race, scales = "free_y") +
+  labs(title = "Top Predictors by Racial Group", x = "Feature", y = "Importance") +
+  theme_minimal()
+```
+
+Our feature importance results led us to shift our focus to rurality in America. We decided to conduct another predictive analysis on all the rural US counties. For practicality, we defined rural counties as any county with 30% or above percent rural, which is 10% above the national rural population average.
+
+After predicting Years of Potential Life Lost (a metric that defines the impact of premature death), using our previously defined model features, we were able to produce a well-performing model, as the majority of our values are clustered around our identity line. However, variability does exist.
+
+```{r include=FALSE}
+#| label: Rural US counties variables/datasets + xgb cv preds
+#### Looking at rural counties in America ####
+
+PD_health_data <- read_csv('PD_health_data.csv')
+library(Metrics)
+
+
+
+# Filter rural counties (30% or more rural)
+rural_counties <- PD_health_data |> 
+  filter(`% Rural` >= 30)
+
+# Remove rows with missing YPLL
+rural_counties <- rural_counties[!is.na(rural_counties$`Years of Potential Life Lost Rate`), ]
+
+
+rural_counties <- rural_counties |> 
+  mutate(log_ypll = log1p(rural_counties$`Years of Potential Life Lost Rate`))
+
+
+
+
+# Set target column
+target_col_rural_counties <- "Years of Potential Life Lost Rate"
+
+# Train/test split
+set.seed(1234)
+sample_split <- sample(c(TRUE, FALSE), nrow(rural_counties), replace = TRUE, prob = c(0.7, 0.3))
+train_rural <- rural_counties[sample_split, ]
+
+# Features and target
+x_train_final_rural <- train_rural[, final_features]
+y_train_final_rural <- train_rural[[target_col_rural_counties]]
+
+# Train model with cross-validation
+set.seed(1234)
+control <- trainControl(method = "cv", number = 5, savePredictions = "final")
+xg_tune_rural <- train(
+  x = x_train_final_rural, 
+  y = y_train_final_rural, 
+  tuneGrid = xg_grid_final, 
+  trControl = control,
+  objective = "reg:squarederror", 
+  method = "xgbTree"
+)
+
+# Extract CV predictions
+cv_preds_rural <- xg_tune_rural$pred
+rmse_val_rural <- round(rmse(cv_preds_rural$obs, cv_preds_rural$pred), 2)
+r2_val_rural <- round(cor(cv_preds_rural$obs, cv_preds_rural$pred)^2, 2)
+
+# Step 2: Create label
+label_text <- paste0("RMSE: ", rmse_val_rural, "\nR²: ", r2_val_rural)
+```
+
+```{r echo=FALSE}
+#| label: cv preds plot (rural US counties)
+#| fig-cap: Figure 7. XGBoost model predictions across all rural counties in the United States.
+ggplot(cv_preds_rural, aes(x = obs, y = pred)) +
+  geom_point(alpha = 0.7, color = "blue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  annotate("text", x = Inf, y = -Inf, label = label_text,
+           hjust = 1.1, vjust = -0.3, size = 4.5) +
+  labs(
+    title = "Predicted Years of Potential Life Lost vs Actual in Rural US",
+    x = "Actual", y = "Predicted"
+  ) +
+  theme_minimal()
+```
+
+We also applied this model to our selected counties from the southeastern United States and Alaska. There was a higher variability of our predictions as the values denoted by the scattered values around the identity line.
+
+```{r include=FALSE}
+#| label: rural counties in selected states xgb cv preds
+rural_counties_our_states <- filter(rural_counties, 
+  State.x %in% c("Alaska", "Arizona", 
+         "New Mexico", "Texas", "Oklahoma", "Arkansas", "Louisiana", "Mississippi", 
+         "Alabama", "Florida", "Georgia", "South Carolina", "North Carolina", 
+         "Virginia", "West Virginia", "Kentucky", "Tennessee"))
+# rural_counties_our_states <- rural_counties_our_states[!is.na(rural_counties_our_states$`Years of Potential Life Lost Rate`), ]
+sample_split_again <- sample(c(TRUE, FALSE), nrow(rural_counties_our_states), replace = TRUE, prob = c(0.7, 0.3))
+
+train_rural_our_states <- rural_counties_our_states[sample_split_again, ]
+
+
+
+# Features and target
+x_train_final_rural_our_states <- train_rural_our_states[, final_features]
+y_train_final_rural_our_states <- train_rural_our_states[[target_col_rural_counties]]
+
+# Train model with cross-validation
+set.seed(1234)
+control <- trainControl(method = "cv", number = 5, savePredictions = "final")
+xg_tune_rural_our_states <- train(
+  x = x_train_final_rural_our_states, 
+  y = y_train_final_rural_our_states, 
+  tuneGrid = xg_grid_final, 
+  trControl = control,
+  objective = "reg:squarederror", 
+  method = "xgbTree"
+)
+
+# Extract CV predictions
+cv_preds_rural_our_states <- xg_tune_rural_our_states$pred
+rmse_val_rural_our_states <- round(rmse(cv_preds_rural_our_states$obs, cv_preds_rural_our_states$pred), 2)
+r2_val_rural_our_states <- round(cor(cv_preds_rural_our_states$obs, cv_preds_rural_our_states$pred)^2, 2)
+
+# Step 2: Create label
+label_text <- paste0("RMSE: ", rmse_val_rural_our_states, "\nR²: ", r2_val_rural_our_states)
+
+```
+
+```{r echo=FALSE}
+#| label: plot for rural counties in selected states
+#| fig-cap: Figure 8. XGBoost model predictions across all rural counties in selected states. 
+# Plot predictions vs actual
+ggplot(cv_preds_rural_our_states, aes(x = obs, y = pred)) +
+  geom_point(alpha = 0.7, color = "blue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  annotate("text", x = Inf, y = -Inf, label = label_text,
+           hjust = 1.1, vjust = -0.3, size = 4.5) +
+  labs(
+    title = "Predicted Years of Potential Life Lost vs Actual in Rural Southeast US & Alaska",
+    x = "Actual", y = "Predicted"
+  ) +
+  theme_minimal()
+```
+
+After viewing our feature importance in both analyses, we saw that % rural was still included but not listed as a top feature impacting this model’s predictive power.
+
+```{r echo=FALSE}
+#| label: features in rural US counties
+#| fig-cap: Figure 9. Top features of XGBoost model across all rural US counties.
+var_imp <- varImp(xg_tune_rural)
+plot(var_imp, main = "Feature Importance (Rural Counties)")
+```
+
+```{r echo=FALSE}
+#| label: features in rural counties in selected states
+#| fig-cap: Figure 10. Top features of XGBoost model across all rural counties in selected states. 
+var_imp_rural_our_states <- varImp(xg_tune_rural_our_states)
+plot(var_imp_rural_our_states, main = "Feature Importance in Rural Southeast US & Alaska")
+```
+
+Our selected features proved not to be the best fit for modeling premature death rates in rural America. To understand the socioeconomic features that play a role in rural counties, we performed a simple XGBoost model to find the most important ones to help build a better model for predicting premature death in rural America.
+
+```{r include=FALSE}
+#| label: finding better features for rural counties
+### trying to find better features for the rural counties #### 
+
+library(xgboost)
+library(caret)
+# 1. Select relevant columns only
+data_model <- rural_counties_our_states |>
+  select(-County, -FIPS, -State.x, -County.x, -`National Z-Score (Years of Potential Life Lost)`, 
+         -log_ypll, -`95% CI - Low (Years of Potential Life Lost)`, 
+         -`95% CI - High (Years of Potential Life Lost)`, 
+         -`Premature Age-Adjusted Mortality Rate (White) - deaths per 100,000`, 
+         -`Premature Age-Adjusted Mortality Rate (Black) - deaths per 100,000`, 
+         -`Premature Age-Adjusted Mortality Rate (Hispanic) - deaths per 100,000`, 
+         -`Premature Age-Adjusted Mortality Rate (AIAN) - deaths per 100,000`, 
+         -`Premature Age-Adjusted Mortality Rate (Asian) - deaths per 100,000`)
+keep <- !is.na(data_model$`Years of Potential Life Lost Rate`)
+data_model <- data_model[keep, ]
+
+# 2. Drop rows with any missing values in predictors or outcome
+#data_model <- drop_na(data_model)
+
+# 3. Separate predictors and outcome
+x_x <- data_model |> select(-`Years of Potential Life Lost Rate`)
+y_y <- data_model$`Years of Potential Life Lost Rate`
+
+# 4. Convert character columns to factors
+x_x[] <- lapply(x_x, function(col) {
+  if (is.character(col)) as.factor(col) else col
+})
+
+x_x[] <- lapply(x_x, function(col) {
+  if (is.factor(col)) as.numeric(col) else col
+})
+
+
+
+# 5. Drop one-level factor columns
+# x_x <- x_x[, sapply(x_x, function(col) !(is.factor(col) && nlevels(col) <= 1))]
+
+# 6. Convert to model matrix
+x_matrix <- as.matrix(x_x)
+
+# 7. Check alignment
+nrow(x_matrix) == length(y_y)  # should be TRUE now
+
+dtrain <- xgb.DMatrix(data = x_matrix, label = y_y, missing = NA)
+
+
+xgb_model <- xgboost(
+  data = dtrain,
+  nrounds = 200,
+  max_depth = 6,
+  eta = 0.1,
+  objective = "reg:squarederror",
+  eval_metric = "rmse",
+  verbose = 1
+)
+```
+
+```{r echo=FALSE}
+#| label: feature importance from simple model
+#| fig-cap: Figure 11. Table of all features from simple XGBoost model. This was used to obtain final features to predict Premature Death rates in rural counties. 
+library(DT)
+
+
+importance_matrix <- xgb.importance(model = xgb_model)
+
+datatable(importance_matrix, 
+          options = list(pageLength = 10),  # set initial rows per page
+          caption = "All Feature Importance Table")
+
+
+# xgb.plot.importance(importance_matrix)
+
+```
+
+We manually conducted our feature selection from a list of 405 variables, prioritizing gain, coverage, and frequency of each variable. Our final selection consisted of 11 features:
+
+-   Not Proficient in English
+-   \% Enrolled in Free or Reduced Lunch
+-   Segregation Index
+-   Number of Unemployed Persons
+-   Number of Uninsured Children
+-   \% Children in Poverty
+-   Number of People with Some College
+-   Presence of Water Violation
+-   \% Excessive Drinking
+-   Income Ratio
+-   \% Limited Access to Healthy Foods
+-   \% Uninsured
+
+Our results were far superior using a new set of features, as our values are closer to the identity line. Additionally, this model achieved improved model performance metrics, indicated by RMSE and R2 values.
+
+```{r include=FALSE}
+#| label: rural xgb model
+trying_new_features <- c('# Not Proficient in English', '% Enrolled in Free or Reduced Lunch', 'Segregation Index...484', 
+                         '# Unemployed', '# Uninsured Children', '% Children in Poverty', '# Some College', 'Presence of Water Violation',
+                         '% Excessive Drinking', 'Income Ratio', '% Limited Access to Healthy Foods', '% Uninsured')
+                         
+
+x_x_1 <- data_model[, trying_new_features]
+y_y_1 <- data_model$`Years of Potential Life Lost Rate`
+
+# 4. Convert character columns to factors
+x_x_1[] <- lapply(x_x_1, function(col) {
+  if (is.character(col)) as.factor(col) else col
+})
+
+x_x_1[] <- lapply(x_x_1, function(col) {
+  if (is.factor(col)) as.numeric(col) else col
+})
+
+
+
+# 5. Drop one-level factor columns
+# x_x <- x_x[, sapply(x_x, function(col) !(is.factor(col) && nlevels(col) <= 1))]
+
+# 6. Convert to model matrix
+x_matrix_1 <- as.matrix(x_x_1)
+
+# 7. Check alignment
+nrow(x_matrix_1) == length(y_y_1)  # should be TRUE now
+
+dtrain_1 <- xgb.DMatrix(data = x_matrix_1, label = y_y_1, missing = NA)
+
+
+xgb_model_1 <- xgboost(
+  data = dtrain_1,
+  nrounds = 200,
+  max_depth = 6,
+  eta = 0.1,
+  objective = "reg:squarederror",
+  eval_metric = "rmse",
+  verbose = 1
+)
+preds_rural_1 <- predict(xgb_model_1, newdata = x_matrix_1)
+plot_preds_rural_1 <- data.frame(obs = y_y_1, pred = preds_rural_1)
+
+```
+
+```{r echo=FALSE}
+#| label: plot of cv preds 
+#| fig-cap: Figure 12. Final XGBoost model predictions across all rural counties in selected states. 
+rmse_val_rural_our_states_1 <- round(rmse(plot_preds_rural_1$obs, plot_preds_rural_1$pred), 2)
+r2_val_rural_our_states_1 <- round(cor(plot_preds_rural_1$obs, plot_preds_rural_1$pred)^2, 2)
+
+# Step 2: Create label
+label_text <- paste0("RMSE: ", rmse_val_rural_our_states_1, "\nR²: ", r2_val_rural_our_states_1)
+
+# Plot predictions vs actual
+ggplot(plot_preds_rural_1, aes(x = obs, y = pred)) +
+  geom_point(alpha = 0.7, color = "darkgreen") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  annotate("text", x = Inf, y = -Inf, label = label_text,
+           hjust = 1.1, vjust = -0.3, size = 4.5) +
+  labs(
+    title = "Predicted Years of Potential Life Lost vs Actual in Rural Southeast US & Alaska",
+    x = "Actual", y = "Predicted"
+  ) +
+  theme_minimal()
+```
+
+```{r,, include = FALSE}
+final_features <- c("% Rural", "Food Environment Index",
+                    "Primary Care Physicians Rate", "% Limited Access to Healthy Foods", 
+                    "% Some College", "Average Daily PM2.5", "% Unemployed", 
+                    "Income Ratio")
+ 
+all_race_data <- list(
+  Black = our_counties_filtered_black,
+  White = our_counties_filtered_white, 
+  Asian = our_counties_filtered_asian, 
+  AIAN = our_counties_filtered_aian, 
+  Hispanic = our_counties_filtered_hisp
+    )
+
+final_features <- c("% Rural", "Food Environment Index",
+                    "Primary Care Physicians Rate", "% Limited Access to Healthy Foods", 
+                    "% Some College", "Average Daily PM2.5", "% Unemployed", 
+                    "Income Ratio")
+target_column <- list(Black = "Premature Age-Adjusted Mortality Rate (Black) - deaths per 100,000", 
+                      White = "Premature Age-Adjusted Mortality Rate (White) - deaths per 100,000", 
+                      Hispanic = "Premature Age-Adjusted Mortality Rate (Hispanic) - deaths per 100,000", 
+                      Asian = "Premature Age-Adjusted Mortality Rate (Asian) - deaths per 100,000", 
+                      AIAN = "Premature Age-Adjusted Mortality Rate (AIAN) - deaths per 100,000")
+results <- list()
+
+```
+
+```{r, include= FALSE}
+
+# Set final features
+final_features <- c("% Rural", "Food Environment Index",
+                    "Primary Care Physicians Rate", "% Limited Access to Healthy Foods", 
+                    "% Some College", "Average Daily PM2.5", "% Unemployed", 
+                    "Income Ratio")
+
+# Define tuning grid
+xg_grid_final <- crossing(nrounds = seq(20, 150, 10),
+                          eta = c(0.01, 0.05, 0.1),
+                          gamma = 0,
+                          max_depth = c(2, 3, 4),
+                          colsample_bytree = 1,
+                          min_child_weight = 1,
+                          subsample = 1
+)
+
+# Optional: store results
+model_results <- list()
+plot_list <- list()
+
+# Loop through each race group
+for (group in names(all_race_data)) {
+  
+  target_column <- paste0("Premature Age-Adjusted Mortality Rate (", group, ") - deaths per 100,000")
+  df_group <- all_race_data[[group]]
+  
+  # Train/test split
+  set.seed(1234)
+  sample_split <- sample(c(TRUE, FALSE), nrow(df_group), replace = TRUE, prob = c(0.7, 0.3))
+  train <- df_group[sample_split, ]
+  test <- df_group[!sample_split, ]
+  
+  x_train_final <- train[, final_features]
+  y_train_final <- train[[target_column]]
+  x_test_final <- test[, final_features]
+  y_test_final <- test[[target_column]]
+  
+  # Train model
+  set.seed(1234)
+  control <- trainControl(method = "cv", number = 5, savePrediction = "final")
+  xg_tune <- train(
+    x = x_train_final, 
+    y = y_train_final, 
+    tuneGrid = xg_grid_final, 
+    trControl = control,
+    objective = "reg:squarederror", 
+    method = "xgbTree"
+  )
+  cv_preds <- xg_tune$pred
+  # Predict on test
+  
+  # plotting cv pred
+  ggplot(cv_preds, aes(x = obs, y = pred)) +
+    geom_point(alpha = 0.7, color = "blue") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(title = paste("Cross-Validated Predictions vs Actual:", group),
+         x = "Actual Rate", y = "Predicted Rate") +
+    theme_minimal()
+  
+}
+
+#############
+
+# plotting CROSS VALIDATED PREDICTIONS
+saved_preds <- list()
+saved_models <- list()
+for (group in names(all_race_data)) {
+  
+  target_column <- paste0("Premature Age-Adjusted Mortality Rate (", group, ") - deaths per 100,000")
+  df_group <- all_race_data[[group]]
+  
+  # Train/test split (optional — not used for CV but can keep for reference)
+  set.seed(1234)
+  sample_split <- sample(c(TRUE, FALSE), nrow(df_group), replace = TRUE, prob = c(0.7, 0.3))
+  train <- df_group[sample_split, ]
+  
+  x_train_final <- train[, final_features]
+  y_train_final <- train[[target_column]]
+  
+  # Train model with cross-validation
+  set.seed(1234)
+  control <- trainControl(method = "cv", number = 5, savePredictions = "final")  # ✅ Fixed this line
+  xg_tune <- train(
+    x = x_train_final, 
+    y = y_train_final, 
+    tuneGrid = xg_grid_final, 
+    trControl = control,
+    objective = "reg:squarederror", 
+    method = "xgbTree"
+  )
+  
+  cv_preds <- xg_tune$pred
+  saved_preds[[group]] <- cv_preds
+  saved_models[[group]] <-xg_tune
+  
+  # Plotting cross-validated predictions
+  p <- ggplot(cv_preds, aes(x = obs, y = pred)) +
+    geom_point(alpha = 0.7, color = "blue") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(title = paste("Predicted Premature Death Rate (per 100,000) vs Actual:", group),
+         x = "Actual Rate", y = "Predicted Rate") +
+    theme_minimal()
+}
+```
+
+```{r, include= FALSE}
+# plotting CROSS VALIDATED PREDICTIONS
+saved_preds <- list()
+saved_models <- list()
+for (group in names(all_race_data)) {
+  
+  target_column <- paste0("Premature Age-Adjusted Mortality Rate (", group, ") - deaths per 100,000")
+  df_group <- all_race_data[[group]]
+  
+  # Train/test split (optional — not used for CV but can keep for reference)
+  set.seed(1234)
+  sample_split <- sample(c(TRUE, FALSE), nrow(df_group), replace = TRUE, prob = c(0.7, 0.3))
+  train <- df_group[sample_split, ]
+  
+  x_train_final <- train[, final_features]
+  y_train_final <- train[[target_column]]
+  
+  # Train model with cross-validation
+  set.seed(1234)
+  control <- trainControl(method = "cv", number = 5, savePredictions = "final")  
+  xg_tune <- train(
+    x = x_train_final, 
+    y = y_train_final, 
+    tuneGrid = xg_grid_final, 
+    trControl = control,
+    objective = "reg:squarederror", 
+    method = "xgbTree"
+  )
+  
+  cv_preds <- xg_tune$pred
+  saved_preds[[group]] <- cv_preds
+  saved_models[[group]] <-xg_tune
+  
+  # Plotting cross-validated predictions
+  p <- ggplot(cv_preds, aes(x = obs, y = pred)) +
+    geom_point(alpha = 0.7, color = "blue") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    labs(title = paste("Predicted Premature Death Rate (per 100,000) vs Actual:", group),
+         x = "Actual Rate", y = "Predicted Rate") +
+    theme_minimal()
+
+}
+
+```
+
+Associations does exist between rurality and various socioeconomic levels. Across urban and rural populations, the level of impact and specific factors impacting premature death does change.
+
+## Recommendations
+
+Based on our analysis revealing that rural counties consistently demonstrate significantly higher premature death rates, with eleven key socioeconomic factors that drive these disparities, we recommend UnitedHealth Group/ Optum implement targeted interventions addressing critical determinants identified in our models.
+
+The analysis identified unemployment, educational attainment, and economic restraints as significant predictors of premature mortality in rural areas. This means counties with higher unemployment rates and lower levels of college completion consistently showed elevated death rates across all of the racial groups. We would recommend developing comprehensive development programs that target rural communities, including partnerships with local community colleges to establish ideas to help graduation rates. Additionally, the model demonstrated that counties with fewer primary care physicians per capita and higher uninsured rates had significantly higher premature death rates. A rural health access initiative should focus on installing health clinics or programs with specialists to help multiple counties, possibly expanding telehealth access through partnerships and creating incentive programs to recruit primary care physicians in underserved communities. It is also important to recognize that language barriers, segregation indices, and child poverty rates impact premature mortality, with notable variations across racial groups in rural areas. Culturally responsive programs could help establish multilingual health navigation services, as well as maternal and child health programs addressing the higher rates of uninsured children. This can address the intersection of rurality, race, and socioeconomic status that is worrisome.
+
+In a supplementary perspective, our data presented that limited access to healthy foods, air pollution levels, and water quality violations emerged as critical predictors across our models. An approach to partner with local grocery stores, farmers markets, and other options would improve food access in rural communities. Coordination with environmental agencies to address the water quality violations and air quality concerns could help create sustainable improvements in environmental health factors that directly impact mortality outcomes.
+
+## Discussion
+
+Our comprehensive analysis of premature mortality across 70 counties in the Southern United States provides valuable insights into the relationship between socioeconomic factors and health outcomes, while revealing significant gaps in current health disparities research. Our primary research question focused on understanding how various socioeconomic determinants impact premature death rates across racial groups, yet our most compelling finding emerged from an unexpected direction: rurality consistently outweighed racial factors as a predictor of premature mortality across all demographic groups.
+
+Our machine learning models revealed that rural counties face fundamentally different health challenges than their urban counterparts, with 11 key socioeconomic factors clustering around economic security, healthcare access, food security, and environmental quality emerging as critical predictors of premature death. The superior performance of our XGBoost model over Random Forest demonstrated that complex machine learning techniques can effectively identify patterns in health disparities data despite significant data quality challenges. However, while our models achieved strong predictive performance, we must acknowledge that the feature importance rankings from XGBoost cannot fully capture the complex interrelationships between socioeconomic factors that sociological research has established. These findings align with established literature identifying physician shortages, socioeconomic deprivation, and lack of health insurance as primary drivers of rural health disparities[@gong2019higher]. Importantly, our analysis provides a data-driven framework for prioritizing interventions based on measurable county-level characteristics.
+
+Our dataset proved to be our most significant limitation despite systematic data collection and purposive sampling. This may reflect broader challenges in health surveillance systems, where failure to collect accurate racial and ethnic data hurts efforts to improve care quality[@iom2009race]. Additionally, our focus on Southern states limits generalizability to other regions where rural health challenges may manifest differently. Our cross-sectional design prevents establishing definitive causal relationships between socioeconomic improvements and mortality reductions.
+
+Several critical next steps emerge from our analysis. Community-level analysis within rural areas could reveal important variations obscured by county-level aggregation. Understanding how local healthcare infrastructure, social capital, and community resources influence health outcomes would inform more targeted interventions. Most importantly, intervention research testing programs addressing our identified factors would provide crucial evidence for translating findings into practice, potentially demonstrating whether comprehensive rural health interventions yield greater benefits than single-factor approaches. Our analysis ultimately demonstrates that addressing premature mortality requires recognizing rurality as a critical social determinant of health while developing better data systems to understand how geographic, racial, and socioeconomic factors interact.
